@@ -1,0 +1,95 @@
+version: "3"
+
+services:
+  traefik:
+    image: traefik:v2.10
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpChallenge.entryPoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=lovenika506@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./letsencrypt:/letsencrypt"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+
+  magtu-bot:
+    image: my-magtu-bot
+    restart: always
+    networks:
+      - web
+      - magtu
+    environment:
+      - VIBER_TOKEN=7212132620:AAH6Epo1TZDsgf3SxPeEhcoRYXrsf1HVKjM
+      - VIBER_URL=https://api.magtirotik.ru/bot/viber
+      - VIBER_PATH=/bot/viber
+      - PORT=8080
+      - MONGO_URI=mongodb+srv://pingusha:PIDOR228@one.74eacru.mongodb.net/database
+      - TG_TOKEN=7603568688:AAFQRneY9upYr6QBLVvRT65EfTeAOphx4kU
+      - TG_URL=https://api.magtirotik.ru/bot/tg
+      - TG_PATH=/bot/tg
+      - ADMIN_BOT_TOKEN=7212132620:AAH6Epo1TZDsgf3SxPeEhcoRYXrsf1HVKjM
+      - ADMIN_ID=6829477463
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.magtu-bot.rule=Host(`api.magtirotik.ru`) && PathPrefix(`/bot`)
+      - traefik.http.routers.magtu-bot.entrypoints=websecure
+      - traefik.http.routers.magtu-bot.tls=true
+      - traefik.http.routers.magtu-bot.tls.certresolver=myresolver
+
+  magtu-parser:
+    image: ivanik/magtu-parser:latest
+    restart: always
+    networks:
+      - magtu
+    ports:
+      - "8082:8081"
+    volumes:
+      - ./urls.json:/app/urls.json
+    environment:
+      - MONGO_URI=mongodb://mongo/magtu
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - BOT=http://magtu-bot:8080/notify?secret=CHANGEME
+  
+  mongo:
+    image: mongo:5.0.9
+    restart: always
+    networks:
+      - magtu
+    volumes:
+      - ./data-db:/data/db
+  
+  magtu-api:
+    image: elerphore/magtu-pairs-access:prod-1.1
+    environment:
+      - SPRING_DATA_MONGODB_HOST=mongo
+      - SPRING_DATA_MONGODB_DATABASE=magtu
+    restart: always
+    networks:
+      - web
+      - magtu
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.magtu-api.loadbalancer.server.port=8080
+      - traefik.http.routers.magtu-api.rule=Host(`api.magtirotik.ru`) && PathPrefix(`/mpk/api`)
+      - traefik.http.routers.magtu-api.entrypoints=websecure
+      - traefik.http.routers.magtu-api.tls=true
+      - traefik.http.routers.magtu-api.tls.certresolver=myresolver
+      - traefik.http.routers.magtu-api.middlewares=magtu-api-stripprefix@docker
+      - traefik.http.middlewares.magtu-api-stripprefix.stripprefix.prefixes=/mpk/api
+
+networks:
+  web:
+    external:
+      name: web_web
+  magtu:
